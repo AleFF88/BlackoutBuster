@@ -7,25 +7,73 @@ namespace BlackoutBuster {
         private static readonly string TargetUrl = "https://www.zoe.com.ua/outage/";
         // Ідентифікатор черги (групи) для пошуку
         private static readonly string GroupTag = "5.1";
+        //ID каналу в Телеграме (публічний канал, тому вказую ID в коді)
+        private static readonly string ChatId = "-1003611956747";
 
-        // Отримання API-ключа із системних змінних середовища (Environment Variables)
-        private static readonly string ScraperKey = Environment.GetEnvironmentVariable("SCRAPER_API_KEY");
+        // Налаштовуємо клієнт один раз при старті додатка
+        private static readonly HttpClient HttpClient = new HttpClient {
+            Timeout = TimeSpan.FromSeconds(120) // ScraperAPI потребує часу
+        };
 
         // Скомпільований регулярний вираз для очищення пробілів.
         private static readonly Regex WhitespaceRegex = new Regex(@"\s+", RegexOptions.Compiled);
         // Скомпільований регулярний вираз для пошуку тексту від групи 5.1 до початку наступної (5.2)
         private static readonly Regex GroupSearchRegex = new Regex($@"({GroupTag}:.*?(?=5.2:|$))", RegexOptions.Compiled | RegexOptions.Singleline);
 
+        // API-ключ із системних змінних середовища (Environment Variables)
+        private static readonly string ScraperKey = Environment.GetEnvironmentVariable("SCRAPER_API_KEY") ?? "";
+        // Токен для Телеграму із системних змінних середовища (Environment Variables)
+        private static readonly string BotToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN") ?? "";
+
+        static Program() {
+            // Встановлюємо стандартний User-Agent для ідентифікації клієнта
+            HttpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        }
+
         static async Task Main() {
+            //TODO убери после теста
+            await SendTelegramMessageAsync($"[{DateTime.Now}] System check: Parser started on GitHub Actions.");
+
             try {
-                await GetLatestGroupInfo();
+                var message = await GetLatestGroupInfo();
+                if (!string.IsNullOrEmpty(message)) {
+                    await SendTelegramMessageAsync(message);
+                }
             }
             catch (Exception ex) {
-                Console.WriteLine($"[Error]: {ex.Message}");
+                Console.WriteLine($"::error::[Error]: {ex.Message}");
+            }
+        }
+        private static async Task SendTelegramMessageAsync(string message) {
+            if (string.IsNullOrEmpty(BotToken)) {
+                throw new InvalidOperationException("::error::TELEGRAM_BOT_TOKEN is not set. The application cannot send notifications.");
+            }
+
+            try {
+                // Telegram API URL for sending messages
+                string url = $"https://api.telegram.org/bot{BotToken}/sendMessage";
+
+                // Prepare the data to send
+                var payload = new {
+                    chat_id = ChatId,
+                    text = message,
+                };
+
+                // Convert payload to JSON and send
+                var json = System.Text.Json.JsonSerializer.Serialize(payload);
+                using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+                var response = await HttpClient.PostAsync(url, content);
+                if (!response.IsSuccessStatusCode) {
+                    throw new InvalidOperationException($"::error::Telegram API Error: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex) {
+                Console.WriteLine($"::error::Failed to send Telegram message: {ex.Message}");
             }
         }
 
-        private static async Task GetLatestGroupInfo() {
+        private static async Task<string> GetLatestGroupInfo() {
             // Завантаження HTML-документа
             var doc = await DownloadHtmlAsync();
 
@@ -51,8 +99,8 @@ namespace BlackoutBuster {
                 parentContainer = parentContainer.ParentNode;
 
                 // Перевірка: чи не вилетіли ми за межі контенту (дійшли до "самого верху" DOM)
-                if (parentContainer == null 
-                    || parentContainer.Name == "body" 
+                if (parentContainer == null
+                    || parentContainer.Name == "body"
                     || parentContainer.Name == "html"
                     || parentContainer.HasClass("main-wrapper")) {
                     throw new InvalidOperationException($"[Error]: Header found, but details for group {GroupTag} not found in the container.");
@@ -67,17 +115,19 @@ namespace BlackoutBuster {
             // Якщо регулярний вираз знайшов збіг
             if (match.Success) {
                 // Очищення від зайвих пробілів, зайвих ком або пробілів у кінці рядка
-                string scheduleInfo = WhitespaceRegex.Replace(match.Groups[1].Value.Trim(), " ").TrimEnd(',', ' '); 
+                string scheduleInfo = WhitespaceRegex.Replace(match.Groups[1].Value.Trim(), " ").TrimEnd(',', ' ');
 
                 // Формування підсумкового повідомлення (заголовок + графік)
-                string fullMessage = $"{headerText}\n{scheduleInfo}"; 
+                string fullMessage = $"{headerText}\n{scheduleInfo}";
 
-                Console.WriteLine(fullMessage); 
+                //TODO убери после теста
+                Console.WriteLine($"::warning::{fullMessage}");
+                return fullMessage;
             } else {
-                Console.WriteLine($"Could not find schedule details for group {GroupTag}.");
+                throw new InvalidOperationException($"::error::Could not find schedule details for group {GroupTag}.");
             }
         }
-        
+
         private static async Task<HtmlDocument> DownloadHtmlAsync() {
             if (string.IsNullOrEmpty(ScraperKey)) {
                 throw new InvalidOperationException("SCRAPER_API_KEY environment variable is not set.");
@@ -90,29 +140,21 @@ namespace BlackoutBuster {
                               $"&premium=true" +
                               $"&country_code=ua";
 
-            using (var httpClient = new HttpClient()) {
-                // Збільшуємо таймаут до 120 секунд, враховуючи латентність проксі-мережі
-                httpClient.Timeout = TimeSpan.FromSeconds(120);
+            try {
+                // Виконання асинхронного GET-запиту через проксі-шлюз
+                string html = await HttpClient.GetStringAsync(proxyUrl);
 
-                // Встановлюємо стандартний User-Agent для ідентифікації клієнта
-                httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-
-                try {
-                    // Виконання асинхронного GET-запиту через проксі-шлюз
-                    string html = await httpClient.GetStringAsync(proxyUrl);
-
-                    if (string.IsNullOrEmpty(html)) {
-                        throw new InvalidOperationException("Received empty response from ScraperAPI.");
-                    }
-
-                    HtmlDocument doc = new HtmlDocument();
-                    // Завантаження HTML та перетворення спецсимволів (наприклад, &nbsp; у пробіли)
-                    doc.LoadHtml(HtmlEntity.DeEntitize(html));
-                    return doc;
+                if (string.IsNullOrEmpty(html)) {
+                    throw new InvalidOperationException("Received empty response from ScraperAPI.");
                 }
-                catch (HttpRequestException ex) {
-                    throw new InvalidOperationException($"[Network Error]: {ex.Message}");
-                }
+
+                HtmlDocument doc = new HtmlDocument();
+                // Завантаження HTML та перетворення спецсимволів (наприклад, &nbsp; у пробіли)
+                doc.LoadHtml(HtmlEntity.DeEntitize(html));
+                return doc;
+            }
+            catch (HttpRequestException ex) {
+                throw new InvalidOperationException($"[Network Error]: {ex.Message}");
             }
         }
     }

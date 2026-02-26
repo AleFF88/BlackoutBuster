@@ -21,4 +21,6 @@ jobs:
     - name: Run application
       run: dotnet run --project BlackoutBuster.csproj
       env:
-        SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}  
+        # Передаємо обидва секрети, щоб програма могла і парсити, і звітувати
+        SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
