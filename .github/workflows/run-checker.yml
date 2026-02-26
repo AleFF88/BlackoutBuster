@@ -1,0 +1,22 @@
+name: Check Power Schedules
+
+on:
+  schedule:
+  # Запуск кожні 2 години з 06:00 до 20:00 за UTC (що відповідає 08:00-22:00 за Києвом)
+    - cron: '0 6-20/2 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-app:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Run application
+      run: dotnet run --project BlackoutBuster.csproj
