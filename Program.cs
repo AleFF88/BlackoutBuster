@@ -8,6 +8,9 @@ namespace BlackoutBuster {
         // Ідентифікатор черги (групи) для пошуку
         private static readonly string GroupTag = "5.1";
 
+        // Отримання API-ключа із системних змінних середовища (Environment Variables)
+        private static readonly string ScraperKey = Environment.GetEnvironmentVariable("SCRAPER_API_KEY");
+
         // Скомпільований регулярний вираз для очищення пробілів.
         private static readonly Regex WhitespaceRegex = new Regex(@"\s+", RegexOptions.Compiled);
         // Скомпільований регулярний вираз для пошуку тексту від групи 5.1 до початку наступної (5.2)
@@ -34,8 +37,7 @@ namespace BlackoutBuster {
                     && n.InnerText.Length < 200); // Обмежуємо довжину тексту, щоб не захопити величезні блоки
 
             if (targetHeaderNode == null) {
-                Console.WriteLine("Could not find a valid schedule header on the page.");
-                return;
+                throw new InvalidOperationException("Could not find a valid schedule header on the page.");
             }
 
             // Видалення зайвих пробілів та переносів із заголовка
@@ -53,8 +55,7 @@ namespace BlackoutBuster {
                     || parentContainer.Name == "body" 
                     || parentContainer.Name == "html"
                     || parentContainer.HasClass("main-wrapper")) {
-                    Console.WriteLine($"[Error]: Header found, but details for group {GroupTag} not found in the container.");
-                    return;
+                    throw new InvalidOperationException($"[Error]: Header found, but details for group {GroupTag} not found in the container.");
                 }
             }
 
@@ -76,24 +77,43 @@ namespace BlackoutBuster {
                 Console.WriteLine($"Could not find schedule details for group {GroupTag}.");
             }
         }
-
+        
         private static async Task<HtmlDocument> DownloadHtmlAsync() {
-            string html = string.Empty;
+            if (string.IsNullOrEmpty(ScraperKey)) {
+                throw new InvalidOperationException("SCRAPER_API_KEY environment variable is not set.");
+            }
+
+            // Формування проксі-запиту з використанням Escaped URL для коректної передачі параметрів
+            // Параметри: premium=true (використання резидентських IP), country_code=ua (геоприв'язка)
+            string proxyUrl = $"http://api.scraperapi.com?api_key={ScraperKey}" +
+                              $"&url={Uri.EscapeDataString(TargetUrl)}" +
+                              $"&premium=true" +
+                              $"&country_code=ua";
+
             using (var httpClient = new HttpClient()) {
-                // Додавання заголовка User-Agent, щоб сайт не заблокував запит як бота
+                // Збільшуємо таймаут до 120 секунд, враховуючи латентність проксі-мережі
+                httpClient.Timeout = TimeSpan.FromSeconds(120);
+
+                // Встановлюємо стандартний User-Agent для ідентифікації клієнта
                 httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-                // Отримання HTML-коду сторінки за посиланням
-                html = await httpClient.GetStringAsync(TargetUrl); 
-            }
 
-            if (string.IsNullOrEmpty(html)) {
-                Console.WriteLine("The page was downloaded but the content is empty.");
-            }
+                try {
+                    // Виконання асинхронного GET-запиту через проксі-шлюз
+                    string html = await httpClient.GetStringAsync(proxyUrl);
 
-            HtmlDocument doc = new HtmlDocument();
-            // Завантаження HTML та перетворення спецсимволів (наприклад, &nbsp; у пробіли)
-            doc.LoadHtml(HtmlEntity.DeEntitize(html)); 
-            return doc;
+                    if (string.IsNullOrEmpty(html)) {
+                        throw new InvalidOperationException("Received empty response from ScraperAPI.");
+                    }
+
+                    HtmlDocument doc = new HtmlDocument();
+                    // Завантаження HTML та перетворення спецсимволів (наприклад, &nbsp; у пробіли)
+                    doc.LoadHtml(HtmlEntity.DeEntitize(html));
+                    return doc;
+                }
+                catch (HttpRequestException ex) {
+                    throw new InvalidOperationException($"[Network Error]: {ex.Message}");
+                }
+            }
         }
     }
 }
