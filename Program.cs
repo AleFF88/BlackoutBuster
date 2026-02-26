@@ -36,40 +36,35 @@ namespace BlackoutBuster {
 
             try {
                 var message = await GetLatestGroupInfo();
-                if (!string.IsNullOrEmpty(message)) {
-                    await SendTelegramMessageAsync(message);
-                }
+                await SendTelegramMessageAsync(message);
             }
             catch (Exception ex) {
                 Console.WriteLine($"::error::[Error]: {ex.Message}");
+                // Гарантуємо, що GitHub Actions побачить статус "Failure"
+                Environment.Exit(1);
             }
         }
         private static async Task SendTelegramMessageAsync(string message) {
             if (string.IsNullOrEmpty(BotToken)) {
-                throw new InvalidOperationException("::error::TELEGRAM_BOT_TOKEN is not set. The application cannot send notifications.");
+                throw new InvalidOperationException("TELEGRAM_BOT_TOKEN is not set. The application cannot send notifications.");
             }
 
-            try {
-                // Telegram API URL for sending messages
-                string url = $"https://api.telegram.org/bot{BotToken}/sendMessage";
+            // Telegram API URL for sending messages
+            string url = $"https://api.telegram.org/bot{BotToken}/sendMessage";
 
-                // Prepare the data to send
-                var payload = new {
-                    chat_id = ChatId,
-                    text = message,
-                };
+            // Prepare the data to send
+            var payload = new {
+                chat_id = ChatId,
+                text = message,
+            };
 
-                // Convert payload to JSON and send
-                var json = System.Text.Json.JsonSerializer.Serialize(payload);
-                using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            // Convert payload to JSON and send
+            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+            using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
-                var response = await HttpClient.PostAsync(url, content);
-                if (!response.IsSuccessStatusCode) {
-                    throw new InvalidOperationException($"::error::Telegram API Error: {response.StatusCode}");
-                }
-            }
-            catch (Exception ex) {
-                Console.WriteLine($"::error::Failed to send Telegram message: {ex.Message}");
+            var response = await HttpClient.PostAsync(url, content);
+            if (!response.IsSuccessStatusCode) {
+                throw new InvalidOperationException($"Telegram API Error: {response.StatusCode}");
             }
         }
 
@@ -124,7 +119,7 @@ namespace BlackoutBuster {
                 Console.WriteLine($"::warning::{fullMessage}");
                 return fullMessage;
             } else {
-                throw new InvalidOperationException($"::error::Could not find schedule details for group {GroupTag}.");
+                throw new InvalidOperationException($"Could not find schedule details for group {GroupTag}.");
             }
         }
 
