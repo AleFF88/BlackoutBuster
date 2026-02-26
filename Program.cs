@@ -59,7 +59,7 @@ namespace BlackoutBuster {
             }
 
             // Витягнення всього тексту зі знайденого контейнера
-            string containerText = parentContainer.InnerText;
+            string containerText = parentContainer!.InnerText;
             // Пошук тексту для групи 5.1
             var match = GroupSearchRegex.Match(containerText);
 
