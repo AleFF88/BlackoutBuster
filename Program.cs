@@ -9,6 +9,7 @@ namespace BlackoutBuster {
         private static readonly string GroupTag = "5.1";
         //ID каналу в Телеграме (публічний канал, тому вказую ID в коді)
         private static readonly string ChatId = "-1003611956747";
+        private static readonly string StateFile = "state.json";
 
         // Налаштовуємо клієнт один раз при старті додатка
         private static readonly HttpClient HttpClient = new HttpClient {
@@ -35,8 +36,13 @@ namespace BlackoutBuster {
             await SendTelegramMessageAsync($"[{DateTime.Now}] System check: Parser started on GitHub Actions.");
 
             try {
-                var message = await GetLatestGroupInfo();
-                await SendTelegramMessageAsync(message);
+                var currentState = await GetLatestGroupInfo();
+                if (IsNewUpdate(currentState)) {
+                    await SendTelegramMessageAsync(currentState.ToString());
+                    SaveState(currentState);
+                } else {
+                    Console.WriteLine($"::warning::No new updates for group {GroupTag}.");
+                }
             }
             catch (Exception ex) {
                 Console.WriteLine($"::error::[Error]: {ex.Message}");
@@ -44,6 +50,7 @@ namespace BlackoutBuster {
                 Environment.Exit(1);
             }
         }
+
         private static async Task SendTelegramMessageAsync(string message) {
             if (string.IsNullOrEmpty(BotToken)) {
                 throw new InvalidOperationException("TELEGRAM_BOT_TOKEN is not set. The application cannot send notifications.");
@@ -68,7 +75,7 @@ namespace BlackoutBuster {
             }
         }
 
-        private static async Task<string> GetLatestGroupInfo() {
+        private static async Task<State> GetLatestGroupInfo() {
             // Завантаження HTML-документа
             var doc = await DownloadHtmlAsync();
 
@@ -113,13 +120,45 @@ namespace BlackoutBuster {
                 string scheduleInfo = WhitespaceRegex.Replace(match.Groups[1].Value.Trim(), " ").TrimEnd(',', ' ');
 
                 // Формування підсумкового повідомлення (заголовок + графік)
-                string fullMessage = $"{headerText}\n{scheduleInfo}";
+                var state = new State {
+                    HeaderText = headerText,
+                    ScheduleInfo = scheduleInfo
+                };
 
                 //TODO убери после теста
-                Console.WriteLine($"::warning::{fullMessage}");
-                return fullMessage;
+                Console.WriteLine($"::warning::{state.HeaderText}");
+                Console.WriteLine($"::warning::{state.ScheduleInfo}");
+                return state;
             } else {
                 throw new InvalidOperationException($"Could not find schedule details for group {GroupTag}.");
+            }
+        }
+
+
+        private static bool IsNewUpdate(State currentState) {
+            if (!File.Exists(StateFile)) {
+                SaveState(currentState);
+                return true;
+            }
+
+            try {
+                string json = File.ReadAllText(StateFile);
+                var lastState = System.Text.Json.JsonSerializer.Deserialize<State>(json);
+                return lastState != currentState;
+            }
+            catch (Exception ex) {
+                throw new InvalidOperationException($"Error reading file {StateFile}.");
+            }
+        }
+
+        private static void SaveState(State state) {
+            try {
+                var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+                string json = System.Text.Json.JsonSerializer.Serialize(state, options);
+                File.WriteAllText(StateFile, json);
+            }
+            catch (Exception ex) {
+                throw new InvalidOperationException($"Save Error: Could not write to {StateFile}. {ex.Message}");
             }
         }
 
@@ -151,6 +190,13 @@ namespace BlackoutBuster {
             catch (HttpRequestException ex) {
                 throw new InvalidOperationException($"[Network Error]: {ex.Message}");
             }
+        }
+
+        private record State {
+            public string HeaderText { get; init; } = string.Empty;
+            public string ScheduleInfo { get; init; } = string.Empty;
+
+            public override string ToString() => $"{HeaderText}\n\n{ScheduleInfo}";
         }
     }
 }
