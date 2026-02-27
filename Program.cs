@@ -1,4 +1,5 @@
 ﻿using HtmlAgilityPack;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace BlackoutBuster {
@@ -9,11 +10,18 @@ namespace BlackoutBuster {
         private static readonly string GroupTag = "5.1";
         //ID каналу в Телеграме (публічний канал, тому вказую ID в коді)
         private static readonly string ChatId = "-1003611956747";
+        // Файл для збереження стану між запусками
         private static readonly string StateFile = "state.json";
 
         // Налаштовуємо клієнт один раз при старті додатка
         private static readonly HttpClient HttpClient = new HttpClient {
             Timeout = TimeSpan.FromSeconds(120) // ScraperAPI потребує часу
+        };
+
+        // Налаштування сериалізації: гарний вигляд (Indented) та підтримка кирилиці (Unicode)
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions {
+            WriteIndented = true,
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.Create(System.Text.Unicode.UnicodeRanges.All)
         };
 
         // Скомпільований регулярний вираз для очищення пробілів.
@@ -37,12 +45,13 @@ namespace BlackoutBuster {
 
             try {
                 var currentState = await GetLatestGroupInfo();
-                if (IsNewUpdate(currentState)) {
+                if (IsUpdateRequired(currentState)) {
                     await SendTelegramMessageAsync(currentState.ToString());
-                    SaveState(currentState);
+                    Console.WriteLine($"::warning::Notification sent.");
                 } else {
                     Console.WriteLine($"::warning::No new updates for group {GroupTag}.");
                 }
+                SaveState(currentState);
             }
             catch (Exception ex) {
                 Console.WriteLine($"::error::[Error]: {ex.Message}");
@@ -56,26 +65,24 @@ namespace BlackoutBuster {
                 throw new InvalidOperationException("TELEGRAM_BOT_TOKEN is not set. The application cannot send notifications.");
             }
 
-            // Telegram API URL for sending messages
+            // URL-адреса API Telegram для надсилання повідомлень
             string url = $"https://api.telegram.org/bot{BotToken}/sendMessage";
 
-            // Prepare the data to send
             var payload = new {
                 chat_id = ChatId,
                 text = message,
             };
 
-            // Convert payload to JSON and send
-            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+            // Конвертація у JSON та відправка
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
             using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-
             var response = await HttpClient.PostAsync(url, content);
             if (!response.IsSuccessStatusCode) {
                 throw new InvalidOperationException($"Telegram API Error: {response.StatusCode}");
             }
         }
 
-        private static async Task<State> GetLatestGroupInfo() {
+        private static async Task<ScheduleState> GetLatestGroupInfo() {
             // Завантаження HTML-документа
             var doc = await DownloadHtmlAsync();
 
@@ -93,11 +100,11 @@ namespace BlackoutBuster {
             // Видалення зайвих пробілів та переносів із заголовка
             string headerText = WhitespaceRegex.Replace(targetHeaderNode.InnerText.Trim(), " ");
 
-            // Отримання батьківського контейнера, в якому лежить текст із чергами
+            // Отримання контейнера предка, у якому лежить текст із чергами
             var parentContainer = targetHeaderNode.ParentNode;
             // Цикл пошуку вгору по дереву до потрібної групи
             while (parentContainer != null && !parentContainer.InnerText.Contains(GroupTag)) {
-                // Перехід до наступного батька вище за ієрархією
+                // Перехід до наступного предка вище за ієрархією
                 parentContainer = parentContainer.ParentNode;
 
                 // Перевірка: чи не вилетіли ми за межі контенту (дійшли до "самого верху" DOM)
@@ -120,7 +127,8 @@ namespace BlackoutBuster {
                 string scheduleInfo = WhitespaceRegex.Replace(match.Groups[1].Value.Trim(), " ").TrimEnd(',', ' ');
 
                 // Формування підсумкового повідомлення (заголовок + графік)
-                var state = new State {
+                var state = new ScheduleState {
+                    Date = ExtractDateKey(headerText),
                     HeaderText = headerText,
                     ScheduleInfo = scheduleInfo
                 };
@@ -134,32 +142,75 @@ namespace BlackoutBuster {
             }
         }
 
+        private static bool IsUpdateRequired(ScheduleState currentState) {
+            ScheduleState? loadedData = LoadState();
 
-        private static bool IsNewUpdate(State currentState) {
-            if (!File.Exists(StateFile)) {
-                SaveState(currentState);
+            // Якщо loadedData == null, треба відправити повідомлення
+            if (loadedData is not ScheduleState loadedState) {
                 return true;
             }
 
+            // Якщо новий день, треба відправити повідомлення
+            if (loadedState.Date != currentState.Date)
+                return true;
+
+            // Якщо графік змінився, треба відправити повідомлення
+            if (loadedState.ScheduleInfo != currentState.ScheduleInfo)
+                return true;
+
+            return false;
+        }
+
+        private static ScheduleState? LoadState() {
+            if (!File.Exists(StateFile)) return null;
             try {
                 string json = File.ReadAllText(StateFile);
-                var lastState = System.Text.Json.JsonSerializer.Deserialize<State>(json);
-                return lastState != currentState;
+                return JsonSerializer.Deserialize<ScheduleState>(json, JsonOptions);
             }
             catch (Exception ex) {
-                throw new InvalidOperationException($"Error reading file {StateFile}.");
+                throw new InvalidOperationException($"Error reading file {StateFile}. {ex.Message}");
             }
         }
 
-        private static void SaveState(State state) {
+        private static void SaveState(ScheduleState state) {
             try {
-                var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
-                string json = System.Text.Json.JsonSerializer.Serialize(state, options);
+                string json = JsonSerializer.Serialize(state, JsonOptions);
                 File.WriteAllText(StateFile, json);
             }
             catch (Exception ex) {
                 throw new InvalidOperationException($"Save Error: Could not write to {StateFile}. {ex.Message}");
             }
+        }
+
+        private static int ExtractDateKey(string header) {
+            if (string.IsNullOrWhiteSpace(header)) {
+                throw new InvalidOperationException("Header is empty.");
+            }
+
+            // Пробуємо взяти перші два символи(на випадок рядка виду "6 СІЧНЯ ...")
+            string rawDayValue = new string(header.TrimStart().Take(2).ToArray());
+            if (int.TryParse(rawDayValue, out int dateValue)) {
+                return dateValue;
+            }
+
+            // Шукаємо ключове слово " НА " (на випадок рядка виду "ОНОВЛЕНО ГПВ НА 6 СІЧНЯ ...")
+            int index = header.IndexOf(" НА ", StringComparison.OrdinalIgnoreCase);
+            if (index != -1) {
+                // Позиція одразу після " НА " (4 символи: пробіл + Н + А + пробіл)
+                int startPos = index + 4;
+
+                // Перевіряємо, чи є в рядку символи після знайденого індексу
+                if (header.Length >= startPos) {
+                    // Витягуємо цифри після " НА ", ігноруючи можливі початкові пробіли
+                    string rawDate = new string(header.Substring(startPos).TrimStart().Take(2).ToArray());
+                    if (int.TryParse(rawDate, out dateValue)) {
+                        return dateValue;
+                    }
+                }
+            }
+
+            // Якщо жоден спосіб не спрацював — це критична зміна формату сайту
+            throw new InvalidOperationException($"Could not extract date from header: {header}");
         }
 
         private static async Task<HtmlDocument> DownloadHtmlAsync() {
@@ -192,10 +243,10 @@ namespace BlackoutBuster {
             }
         }
 
-        private record State {
-            public string HeaderText { get; init; } = string.Empty;
-            public string ScheduleInfo { get; init; } = string.Empty;
-
+        private readonly record struct ScheduleState {
+            public int Date { get; init; }
+            public string HeaderText { get; init; }
+            public string ScheduleInfo { get; init; }
             public override string ToString() => $"{HeaderText}\n\n{ScheduleInfo}";
         }
     }
