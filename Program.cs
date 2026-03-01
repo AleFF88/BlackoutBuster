@@ -100,17 +100,15 @@ namespace BlackoutBuster {
             // Отримання контейнера предка, у якому лежить текст із чергами
             var parentContainer = targetHeaderNode.ParentNode;
             // Цикл пошуку вгору по дереву до потрібної групи
-            while (parentContainer != null && !parentContainer.InnerText.Contains(GroupTag)) {
-                // Перехід до наступного предка вище за ієрархією
+            while (parentContainer != null &&
+                 parentContainer.Name != "div" &&
+                 parentContainer.Name != "article") {
                 parentContainer = parentContainer.ParentNode;
+            }
 
-                // Перевірка: чи не вилетіли ми за межі контенту (дійшли до "самого верху" DOM)
-                if (parentContainer == null
-                    || parentContainer.Name == "body"
-                    || parentContainer.Name == "html"
-                    || parentContainer.HasClass("main-wrapper")) {
-                    throw new InvalidOperationException($"[Error]: Header found, but details for group {GroupTag} not found in the container.");
-                }
+            // Якщо контейнер не знайдено — це структурна помилка (сайт змінився)
+            if (parentContainer == null) {
+                throw new InvalidOperationException("Could not find a valid container for the schedule.");
             }
 
             // Витягнення всього тексту зі знайденого контейнера
@@ -119,20 +117,17 @@ namespace BlackoutBuster {
             var match = GroupSearchRegex.Match(containerText);
 
             // Якщо регулярний вираз знайшов збіг
-            if (match.Success) {
-                // Очищення від зайвих пробілів, зайвих ком або пробілів у кінці рядка
-                string scheduleInfo = WhitespaceRegex.Replace(match.Groups[1].Value.Trim(), " ").TrimEnd(',', ' ');
+            string scheduleInfo = match.Success
+                ? WhitespaceRegex.Replace(match.Groups[1].Value.Trim(), " ").TrimEnd(',', ' ')
+                : $"{GroupTag}: Відключень наразі не заплановано.";
 
-                // Формування підсумкового повідомлення (заголовок + графік)
-                var state = new ScheduleState {
-                    Date = ExtractDateKey(headerText),
-                    HeaderText = headerText,
-                    ScheduleInfo = scheduleInfo
-                };
-                return state;
-            } else {
-                throw new InvalidOperationException($"Could not find schedule details for group {GroupTag}.");
-            }
+            // Формування підсумкового повідомлення (заголовок + графік)
+            var state = new ScheduleState {
+                Date = ExtractDateKey(headerText),
+                HeaderText = headerText,
+                ScheduleInfo = scheduleInfo
+            };
+            return state;
         }
 
         private static bool IsUpdateRequired(ScheduleState currentState) {
@@ -155,7 +150,8 @@ namespace BlackoutBuster {
         }
 
         private static ScheduleState? LoadState() {
-            if (!File.Exists(StateFile)) return null;
+            if (!File.Exists(StateFile))
+                return null;
             try {
                 string json = File.ReadAllText(StateFile);
                 return JsonSerializer.Deserialize<ScheduleState>(json, JsonOptions);
