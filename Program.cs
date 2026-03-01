@@ -26,8 +26,8 @@ namespace BlackoutBuster {
 
         // Скомпільований регулярний вираз для очищення пробілів.
         private static readonly Regex WhitespaceRegex = new Regex(@"\s+", RegexOptions.Compiled);
-        // Скомпільований регулярний вираз для пошуку тексту від групи 5.1 до початку наступної (5.2)
-        private static readonly Regex GroupSearchRegex = new Regex($@"({GroupTag}:.*?(?=5.2:|$))", RegexOptions.Compiled | RegexOptions.Singleline);
+        // Скомпільований регулярний вираз для пошуку тексту від групи 5.1 до наступної комбінації "цифра.цифра:" або кінця рядка
+        private static readonly Regex GroupSearchRegex = new Regex($@"({GroupTag}:.*?(?=\d\.\d:|$))", RegexOptions.Compiled | RegexOptions.Singleline);
 
         // API-ключ із системних змінних середовища (Environment Variables)
         private static readonly string ScraperKey = Environment.GetEnvironmentVariable("SCRAPER_API_KEY") ?? "";
