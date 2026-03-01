@@ -44,9 +44,9 @@ namespace BlackoutBuster {
                 var currentState = await GetLatestGroupInfo();
                 if (IsUpdateRequired(currentState)) {
                     await SendTelegramMessageAsync(currentState.ToString());
-                    Console.WriteLine($"::warning::Notification sent.");
+                    Console.WriteLine($"Notification sent.");
                 } else {
-                    Console.WriteLine($"::warning::No new updates for group {GroupTag}.");
+                    Console.WriteLine($"No new updates for group.");
                 }
                 SaveState(currentState);
             }
