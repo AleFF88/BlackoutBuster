@@ -122,4 +122,4 @@ record struct тут краще, ніж звичайна struct:
 Щоб гіт міг зберігати файли, треба дати йому команду комітити змінений файл. Відображено в run-checker.yml
 	Також треба налаштувати дозвіл на самому гіті, Workflow Permissions: Settings -> Actions -> General. 
 		Перейди до Workflow permissions і переконайся, що вибрано "Read and write permissions". 
-		Включи чекбокс Allow GitHub Actions для створення та approve pull requests.
+		Увімкни чекбокс Allow GitHub Actions для створення та approve pull requests.
