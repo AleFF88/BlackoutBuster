@@ -40,9 +40,6 @@ namespace BlackoutBuster {
         }
 
         static async Task Main() {
-            //TODO убери после теста
-            await SendTelegramMessageAsync($"[{DateTime.Now}] System check: Parser started on GitHub Actions.");
-
             try {
                 var currentState = await GetLatestGroupInfo();
                 if (IsUpdateRequired(currentState)) {
@@ -132,10 +129,6 @@ namespace BlackoutBuster {
                     HeaderText = headerText,
                     ScheduleInfo = scheduleInfo
                 };
-
-                //TODO убери после теста
-                Console.WriteLine($"::warning::{state.HeaderText}");
-                Console.WriteLine($"::warning::{state.ScheduleInfo}");
                 return state;
             } else {
                 throw new InvalidOperationException($"Could not find schedule details for group {GroupTag}.");
