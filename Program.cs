@@ -211,7 +211,7 @@ namespace BlackoutBuster {
             // Параметри: premium=true (використання резидентських IP), country_code=ua (геоприв'язка)
             string proxyUrl = $"http://api.scraperapi.com?api_key={ScraperKey}" +
                               $"&url={Uri.EscapeDataString(TargetUrl)}" +
-                              $"&premium=true" +
+                              //$"&premium=true" +
                               $"&country_code=ua";
 
             try {
